@@ -88,7 +88,7 @@ app.post("/api/food/analyze", upload.single("image"), async (req, res) => {
     const aiRecognition = await analyzeFoodWithAI(req.file);
     if (aiRecognition) {
       res.json({
-        source: "openai",
+        source: aiRecognition.provider || "ai",
         imageName: req.file?.originalname || null,
         ...aiRecognition
       });

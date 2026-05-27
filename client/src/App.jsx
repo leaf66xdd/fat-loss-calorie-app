@@ -90,6 +90,22 @@ function saveProfileBackup(profile) {
   }
 }
 
+function recognitionSourceText(source) {
+  if (source === "doubao") {
+    return "已接入豆包视觉识别，但仍建议核对包装热量。";
+  }
+
+  if (source === "openai") {
+    return "已接入 OpenAI 视觉识别，但仍建议核对包装热量。";
+  }
+
+  if (source === "vision" || source === "ai") {
+    return "已接入 AI 视觉识别，但仍建议核对包装热量。";
+  }
+
+  return "当前未配置可用视觉模型，识别结果只作为待确认草稿。";
+}
+
 export default function App() {
   const [booting, setBooting] = useState(true);
   const [tab, setTab] = useState("home");
@@ -712,9 +728,7 @@ function CaptureView({ today, draft, previewUrl, onAnalyzed, onDraftChange, onSa
           <div className="mb-4 rounded-lg border border-zinc-200 px-4 py-3 text-sm text-zinc-600">
             <p>{draft.message || "热量为估算值，请根据实际情况调整。"}</p>
             <p className="mt-2 text-xs text-zinc-400">
-              {draft.source === "openai"
-                ? "已接入 AI 视觉识别，但仍建议核对包装热量。"
-                : "当前未配置 AI Key，识别结果只作为待确认草稿。"}
+              {recognitionSourceText(draft.source)}
             </p>
           </div>
 
