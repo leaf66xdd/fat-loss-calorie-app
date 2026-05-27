@@ -26,6 +26,7 @@ db.exec(`
     bmr INTEGER NOT NULL,
     tdee INTEGER NOT NULL,
     calorie_target INTEGER NOT NULL,
+    start_date TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -57,6 +58,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_weight_entries_date ON weight_entries(date);
 `);
 
+try {
+  db.exec("ALTER TABLE profiles ADD COLUMN start_date TEXT");
+} catch (error) {
+  if (!String(error.message || "").includes("duplicate column")) {
+    throw error;
+  }
+}
+
 export function getProfile() {
   const row = db.prepare("SELECT * FROM profiles WHERE id = 1").get();
   return row ? mapProfile(row) : null;
@@ -66,9 +75,9 @@ export function saveProfile(input) {
   db.prepare(`
     INSERT INTO profiles (
       id, gender, age, height_cm, current_weight_kg, target_weight_kg,
-      activity_level, bmr, tdee, calorie_target, updated_at
+      activity_level, bmr, tdee, calorie_target, start_date, updated_at
     )
-    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(id) DO UPDATE SET
       gender = excluded.gender,
       age = excluded.age,
@@ -79,6 +88,7 @@ export function saveProfile(input) {
       bmr = excluded.bmr,
       tdee = excluded.tdee,
       calorie_target = excluded.calorie_target,
+      start_date = COALESCE(profiles.start_date, excluded.start_date),
       updated_at = datetime('now')
   `).run(
     input.gender,
@@ -89,7 +99,8 @@ export function saveProfile(input) {
     input.activityLevel,
     input.bmr,
     input.tdee,
-    input.calorieTarget
+    input.calorieTarget,
+    input.startDate ?? null
   );
 
   return getProfile();
@@ -219,6 +230,7 @@ function mapProfile(row) {
     bmr: Number(row.bmr),
     tdee: Number(row.tdee),
     calorieTarget: Number(row.calorie_target),
+    startDate: row.start_date || String(row.created_at || "").slice(0, 10),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

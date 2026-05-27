@@ -4,6 +4,7 @@ import multer from "multer";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { analyzeFoodWithAI } from "./aiFoodRecognition.js";
 import {
   addMealEntry,
   getDistinctMealDates,
@@ -21,12 +22,14 @@ import {
   asNonNegativeNumber,
   asPositiveNumber,
   buildCalorieNotice,
+  calculateDayNumber,
   calculateStreak,
   calculateTargets,
   calculateWeightTrend,
   getDailyQuote,
   getMockFoodRecognition,
   getRemainingFoodSuggestions,
+  isDateKey,
   toDateKey
 } from "./domain.js";
 
@@ -78,12 +81,26 @@ app.get("/api/today", (req, res) => {
   res.json(buildTodayState(date, profile));
 });
 
-app.post("/api/food/analyze", upload.single("image"), (req, res) => {
+app.post("/api/food/analyze", upload.single("image"), async (req, res) => {
   const hint = req.body?.hint || req.file?.originalname || "";
-  const recognition = getMockFoodRecognition(hint);
 
+  try {
+    const aiRecognition = await analyzeFoodWithAI(req.file);
+    if (aiRecognition) {
+      res.json({
+        source: "openai",
+        imageName: req.file?.originalname || null,
+        ...aiRecognition
+      });
+      return;
+    }
+  } catch (error) {
+    console.warn("AI food recognition failed:", error.message);
+  }
+
+  const recognition = getMockFoodRecognition(hint);
   res.json({
-    source: "mock",
+    source: "manual-review",
     imageName: req.file?.originalname || null,
     ...recognition
   });
@@ -209,6 +226,10 @@ function buildTodayState(date, profile) {
   return {
     date,
     profile,
+    timeline: {
+      startDate: profile.startDate || date,
+      dayNumber: calculateDayNumber(profile.startDate || date, date)
+    },
     meals,
     totals: {
       target: profile.calorieTarget,
@@ -236,6 +257,7 @@ function buildTodayState(date, profile) {
 function readProfileInput(body) {
   const gender = body.gender === "female" ? "female" : "male";
   const activityLevel = String(body.activityLevel || "");
+  const startDate = isDateKey(body.startDate) ? String(body.startDate) : toDateKey();
 
   return {
     gender,
@@ -243,6 +265,7 @@ function readProfileInput(body) {
     heightCm: asPositiveNumber(body.heightCm, "身高"),
     currentWeightKg: asPositiveNumber(body.currentWeightKg, "当前体重"),
     targetWeightKg: asPositiveNumber(body.targetWeightKg, "目标体重"),
-    activityLevel
+    activityLevel,
+    startDate
   };
 }

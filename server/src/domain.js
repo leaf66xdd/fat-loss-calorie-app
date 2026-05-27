@@ -22,6 +22,9 @@ const dailyQuotes = [
 
 const mockFoodSets = [
   [
+    food("方便面", "1 桶", 110, 520, 10, 67, 24)
+  ],
+  [
     food("荞麦面", "1 包", 90, 320, 12, 62, 2),
     food("水煮蛋", "2 个", 100, 144, 13, 1, 10),
     food("青菜", "150g", 150, 35, 3, 6, 0)
@@ -130,15 +133,20 @@ export function getDailyQuote(dateKey) {
 
 export function getMockFoodRecognition(hint = "") {
   const normalized = String(hint).trim();
-  if (/饭|米|盖浇|便当/.test(normalized)) {
-    return summarizeFoodSet(mockFoodSets[1]);
+  if (/方便面|泡面|拉面|instant|noodle/i.test(normalized)) {
+    return summarizeFoodSet(mockFoodSets[0], "当前为模拟识别：请确认是不是方便面，并按包装热量修改。");
   }
-  if (/面包|酸奶|香蕉|早餐/.test(normalized)) {
+  if (/饭|米|盖浇|便当/.test(normalized)) {
     return summarizeFoodSet(mockFoodSets[2]);
   }
+  if (/面包|酸奶|香蕉|早餐/.test(normalized)) {
+    return summarizeFoodSet(mockFoodSets[3]);
+  }
 
-  const set = mockFoodSets[Math.floor(Date.now() / 1000) % mockFoodSets.length];
-  return summarizeFoodSet(set);
+  return summarizeFoodSet(
+    [food("待确认食物", "请修改", 0, 0, 0, 0, 0)],
+    "当前拍照识别是模拟接口，不能仅凭图片保证准确。请用下方常见食物快速修正，或手动修改名称、重量和热量。"
+  );
 }
 
 export function buildCalorieNotice({ remaining, target, hour }) {
@@ -202,17 +210,35 @@ export function calculateStreak(dates, todayKey) {
 }
 
 export function toDateKey(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
 }
 
 export function shiftDate(dateKey, days) {
   const [year, month, day] = dateKey.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
-  date.setDate(date.getDate() + days);
-  return toDateKey(date);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
+
+export function calculateDayNumber(startDate, todayKey) {
+  if (!isDateKey(startDate) || !isDateKey(todayKey)) {
+    return 1;
+  }
+
+  const [startYear, startMonth, startDay] = startDate.split("-").map(Number);
+  const [todayYear, todayMonth, todayDay] = todayKey.split("-").map(Number);
+  const startMs = Date.UTC(startYear, startMonth - 1, startDay);
+  const todayMs = Date.UTC(todayYear, todayMonth - 1, todayDay);
+  const diffDays = Math.floor((todayMs - startMs) / 86400000);
+  return Math.max(1, diffDays + 1);
+}
+
+export function isDateKey(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
 }
 
 export function asPositiveNumber(value, fieldName) {
@@ -231,11 +257,32 @@ export function asNonNegativeNumber(value, fieldName) {
   return number;
 }
 
+export function normalizeRecognizedItems(items) {
+  const safeItems = Array.isArray(items) ? items : [];
+  const normalized = safeItems
+    .map((item) => ({
+      name: String(item.name || "待确认食物").trim() || "待确认食物",
+      amount: String(item.amount || item.weight || "").trim(),
+      weightG: Math.max(0, Math.round(Number(item.weightG ?? item.weight_g ?? item.grams ?? 0) || 0)),
+      calories: Math.max(0, Math.round(Number(item.calories ?? item.kcal ?? 0) || 0)),
+      protein: Math.max(0, roundOne(Number(item.protein ?? 0) || 0)),
+      carbs: Math.max(0, roundOne(Number(item.carbs ?? item.carbohydrate ?? 0) || 0)),
+      fat: Math.max(0, roundOne(Number(item.fat ?? 0) || 0)),
+      confidence: clamp(Number(item.confidence ?? 0.5) || 0.5, 0, 1)
+    }))
+    .slice(0, 6);
+
+  return summarizeFoodSet(
+    normalized.length ? normalized : [food("待确认食物", "请修改", 0, 0, 0, 0, 0)],
+    "AI 已尽量识别食物，但热量仍是估算值。包装食品建议按营养成分表修正。"
+  );
+}
+
 function food(name, amount, weightG, calories, protein, carbs, fat) {
   return { name, amount, weightG, calories, protein, carbs, fat };
 }
 
-function summarizeFoodSet(items) {
+function summarizeFoodSet(items, message = "热量为估算值，请根据实际情况调整。") {
   const totals = items.reduce(
     (sum, item) => ({
       calories: sum.calories + item.calories,
@@ -256,7 +303,7 @@ function summarizeFoodSet(items) {
       fat: roundOne(totals.fat),
       weightG: Math.round(totals.weightG)
     },
-    message: "热量为估算值，请根据实际情况调整。"
+    message
   };
 }
 
@@ -270,4 +317,8 @@ function roundUpToNearest100(value) {
 
 function roundOne(value) {
   return Math.round(value * 10) / 10;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }

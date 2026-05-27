@@ -35,6 +35,61 @@ const tabs = [
   { key: "history", label: "历史", icon: History }
 ];
 
+const PROFILE_BACKUP_KEY = "minimalFatLoss.profileBackup.v1";
+
+const foodPresets = [
+  foodPreset("方便面", "1 桶", 110, 520, 10, 67, 24),
+  foodPreset("米饭", "200g", 200, 232, 5, 52, 1),
+  foodPreset("鸡蛋", "2 个", 100, 144, 13, 1, 10),
+  foodPreset("鸡胸肉", "150g", 150, 248, 46, 0, 5),
+  foodPreset("荞麦面", "1 包", 90, 320, 12, 62, 2),
+  foodPreset("无糖酸奶", "1 杯", 180, 115, 7, 10, 4),
+  foodPreset("香蕉", "1 根", 120, 105, 1, 27, 0),
+  foodPreset("红薯", "200g", 200, 172, 3, 40, 0)
+];
+
+function foodPreset(name, amount, weightG, calories, protein, carbs, fat) {
+  return { name, amount, weightG, calories, protein, carbs, fat };
+}
+
+function addDraftIds(items) {
+  return (items || []).map((item, index) => ({
+    ...item,
+    draftId: item.draftId || `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`
+  }));
+}
+
+function loadProfileBackup() {
+  try {
+    const raw = window.localStorage.getItem(PROFILE_BACKUP_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveProfileBackup(profile) {
+  if (!profile) {
+    return;
+  }
+
+  const backup = {
+    gender: profile.gender,
+    age: profile.age,
+    heightCm: profile.heightCm,
+    currentWeightKg: profile.currentWeightKg,
+    targetWeightKg: profile.targetWeightKg,
+    activityLevel: profile.activityLevel,
+    startDate: profile.startDate || new Date().toISOString().slice(0, 10)
+  };
+
+  try {
+    window.localStorage.setItem(PROFILE_BACKUP_KEY, JSON.stringify(backup));
+  } catch {
+    // Local backup is best effort only.
+  }
+}
+
 export default function App() {
   const [booting, setBooting] = useState(true);
   const [tab, setTab] = useState("home");
@@ -49,10 +104,27 @@ export default function App() {
 
   async function refreshAll() {
     const todayData = await getToday();
+    if (!todayData.profile) {
+      const backup = loadProfileBackup();
+      if (backup) {
+        const restored = await createProfile(backup);
+        saveProfileBackup(restored.profile || backup);
+        const restoredToday = await getToday();
+        setToday(restoredToday);
+        setError("");
+        if (restoredToday.profile) {
+          saveProfileBackup(restoredToday.profile);
+          await refreshSecondaryData();
+        }
+        return;
+      }
+    }
+
     setToday(todayData);
     setError("");
 
     if (todayData.profile) {
+      saveProfileBackup(todayData.profile);
       await refreshSecondaryData();
     }
   }
@@ -103,7 +175,7 @@ export default function App() {
       source: result.source,
       imageName: result.imageName,
       message: result.message,
-      items: result.items.map((item) => ({ ...item }))
+      items: addDraftIds(result.items)
     });
     setTab("capture");
   }
@@ -120,8 +192,15 @@ export default function App() {
   async function handleWeightSaved(payload) {
     if (payload.today) {
       setToday(payload.today);
+      if (payload.profile || payload.today.profile) {
+        saveProfileBackup(payload.profile || payload.today.profile);
+      }
     } else {
-      setToday(await getToday());
+      const todayData = await getToday();
+      setToday(todayData);
+      if (todayData.profile) {
+        saveProfileBackup(todayData.profile);
+      }
     }
 
     setError("");
@@ -226,6 +305,7 @@ function Onboarding({ onDone, error, setError }) {
 
     try {
       const result = await createProfile(form);
+      saveProfileBackup(result.profile || form);
       setRecommendation(result.recommendation);
       await onDone();
     } catch (err) {
@@ -337,6 +417,10 @@ function HomeView({ today, onCapture, onWeightSaved, setError }) {
   return (
     <div>
       <header className="pb-5">
+        <div className="mb-3 flex items-center justify-between text-sm font-medium text-zinc-500">
+          <span>{formatDate(today.date)}</span>
+          <span>减脂第 {today.timeline?.dayNumber || 1} 天</span>
+        </div>
         <p className="text-lg font-semibold leading-8 text-zinc-950">{today.quote}</p>
       </header>
 
@@ -528,6 +612,22 @@ function CaptureView({ today, draft, previewUrl, onAnalyzed, onDraftChange, onSa
     });
   }
 
+  function applyPreset(index, preset) {
+    onDraftChange((current) => {
+      const items = current.items.map((item, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...item,
+              ...preset,
+              draftId: item.draftId,
+              confidence: 1
+            }
+          : item
+      );
+      return { ...current, items };
+    });
+  }
+
   async function confirmMeal() {
     if (!draft?.items?.length) {
       return;
@@ -610,7 +710,12 @@ function CaptureView({ today, draft, previewUrl, onAnalyzed, onDraftChange, onSa
           ) : null}
 
           <div className="mb-4 rounded-lg border border-zinc-200 px-4 py-3 text-sm text-zinc-600">
-            {draft.message || "热量为估算值，请根据实际情况调整。"}
+            <p>{draft.message || "热量为估算值，请根据实际情况调整。"}</p>
+            <p className="mt-2 text-xs text-zinc-400">
+              {draft.source === "openai"
+                ? "已接入 AI 视觉识别，但仍建议核对包装热量。"
+                : "当前未配置 AI Key，识别结果只作为待确认草稿。"}
+            </p>
           </div>
 
           <div className="border-y border-zinc-100 py-4">
@@ -630,13 +735,29 @@ function CaptureView({ today, draft, previewUrl, onAnalyzed, onDraftChange, onSa
 
           <div className="divide-y divide-zinc-100">
             {draft.items.map((item, index) => (
-              <div key={`${item.name}-${index}`} className="py-4">
+              <div key={item.draftId || index} className="py-4">
+                <div className="mb-3">
+                  <p className="mb-2 text-sm font-medium text-zinc-500">识别不准？快速改成：</p>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {foodPresets.map((preset) => (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        className="shrink-0 rounded-full border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 active:bg-zinc-100"
+                        onClick={() => applyPreset(index, preset)}
+                      >
+                        {preset.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <label className="block">
                   <span className="mb-2 block text-sm font-medium text-zinc-500">食物名称</span>
                   <input
                     className="h-12 w-full rounded-lg border border-zinc-200 px-3 outline-none focus:border-zinc-900"
                     value={item.name}
                     onChange={(event) => updateItem(index, "name", event.target.value)}
+                    autoComplete="off"
                   />
                 </label>
                 <div className="mt-3 grid grid-cols-2 gap-3">
