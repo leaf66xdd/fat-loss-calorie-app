@@ -50,11 +50,26 @@ export default function App() {
   async function refreshAll() {
     const todayData = await getToday();
     setToday(todayData);
+    setError("");
 
     if (todayData.profile) {
-      const [historyData, weightData] = await Promise.all([getHistory(), getWeights()]);
-      setHistoryRows(historyData.history);
-      setWeights(weightData);
+      await refreshSecondaryData();
+    }
+  }
+
+  async function refreshSecondaryData() {
+    const [historyResult, weightResult] = await Promise.allSettled([getHistory(), getWeights()]);
+
+    if (historyResult.status === "fulfilled") {
+      setHistoryRows(historyResult.value.history);
+    } else {
+      console.warn("Failed to refresh history", historyResult.reason);
+    }
+
+    if (weightResult.status === "fulfilled") {
+      setWeights(weightResult.value);
+    } else {
+      console.warn("Failed to refresh weights", weightResult.reason);
     }
   }
 
@@ -97,9 +112,8 @@ export default function App() {
     setToday(payload.today);
     setFoodDraft(null);
     setPreviewUrl("");
-    const [historyData, weightData] = await Promise.all([getHistory(), getWeights()]);
-    setHistoryRows(historyData.history);
-    setWeights(weightData);
+    setError("");
+    await refreshSecondaryData();
     setTab("home");
   }
 
@@ -110,8 +124,8 @@ export default function App() {
       setToday(await getToday());
     }
 
-    const weightData = await getWeights();
-    setWeights(weightData);
+    setError("");
+    await refreshSecondaryData();
   }
 
   if (booting) {
