@@ -1,0 +1,18 @@
+{
+  "name": "minimal-fat-loss-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "dev": "node --no-warnings --watch src/index.js",
+    "start": "node --no-warnings src/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "multer": "^2.1.1"
+  }
+}
