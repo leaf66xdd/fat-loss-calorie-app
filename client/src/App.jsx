@@ -36,6 +36,8 @@ const tabs = [
 ];
 
 const PROFILE_BACKUP_KEY = "minimalFatLoss.profileBackup.v1";
+const MAX_FOOD_IMAGE_DIMENSION = 1400;
+const IMAGE_COMPRESSION_QUALITY = 0.76;
 
 const foodPresets = [
   foodPreset("方便面", "1 桶", 110, 520, 10, 67, 24),
@@ -104,6 +106,69 @@ function recognitionSourceText(source) {
   }
 
   return "当前未配置可用视觉模型，识别结果只作为待确认草稿。";
+}
+
+async function prepareFoodImage(file) {
+  if (!file || !file.type?.startsWith("image/")) {
+    return file;
+  }
+
+  try {
+    return await compressImageFile(file);
+  } catch (error) {
+    console.warn("Image compression failed", error);
+    return file;
+  }
+}
+
+async function compressImageFile(file) {
+  const image = await loadImage(file);
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  const maxSide = Math.max(width, height);
+  const scale = Math.min(1, MAX_FOOD_IMAGE_DIMENSION / maxSide);
+  const targetWidth = Math.max(1, Math.round(width * scale));
+  const targetHeight = Math.max(1, Math.round(height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return file;
+  }
+
+  context.drawImage(image, 0, 0, targetWidth, targetHeight);
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (result) => (result ? resolve(result) : reject(new Error("图片压缩失败"))),
+      "image/jpeg",
+      IMAGE_COMPRESSION_QUALITY
+    );
+  });
+
+  if (!blob || blob.size >= file.size) {
+    return file;
+  }
+
+  const name = file.name ? file.name.replace(/\.[^.]+$/, ".jpg") : "food-photo.jpg";
+  return new File([blob], name, { type: "image/jpeg", lastModified: Date.now() });
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("图片读取失败"));
+    };
+    image.src = url;
+  });
 }
 
 export default function App() {
@@ -610,8 +675,9 @@ function CaptureView({ today, draft, previewUrl, onAnalyzed, onDraftChange, onSa
     setError("");
 
     try {
-      const result = await analyzeFoodImage(file, file ? file.name : "示例");
-      await onAnalyzed(result, file);
+      const uploadFile = file ? await prepareFoodImage(file) : null;
+      const result = await analyzeFoodImage(uploadFile, file ? file.name : "示例");
+      await onAnalyzed(result, uploadFile || file);
     } catch (err) {
       setError(err.message);
     } finally {

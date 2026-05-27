@@ -1,5 +1,13 @@
 async function request(path, options = {}) {
-  const response = await fetch(path, options);
+  let response;
+  try {
+    response = await fetch(path, options);
+  } catch (error) {
+    const message = String(error?.message || "");
+    const uploadFailed = /load failed|failed to fetch|networkerror/i.test(message);
+    throw new Error(uploadFailed ? "图片上传失败，请重新拍一张清晰照片再试" : "网络请求失败，请稍后重试");
+  }
+
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
