@@ -10,7 +10,7 @@
 
 - 前端：React + TailwindCSS + Vite
 - 后端：Node.js + Express
-- 数据库：SQLite（使用 Node 内置 `node:sqlite`）
+- 数据库：Supabase Postgres；未配置 Supabase 时本地回退到 SQLite
 - 图片识别：优先支持豆包/火山方舟视觉识别，也兼容 OpenAI；未配置 API Key 时进入手动确认模式
 - PWA：支持 manifest 和 service worker，可添加到手机桌面
 
@@ -60,6 +60,17 @@ npm.cmd start
 
 详见 [deploy.md](deploy.md)。
 
+## Supabase 数据持久化
+
+生产环境建议在 Render 配置：
+
+```text
+SUPABASE_DATABASE_URL=Supabase Session pooler 连接串
+APP_USER_ID=default
+```
+
+配置后，基础资料、每日摄入、食物记录、体重记录、每日目标和历史趋势都会保存到 Supabase Postgres。Render 免费版休眠、重启或重新部署后，数据不会跟着本地容器丢失。
+
 ## 主要功能
 
 - 首次进入填写身体数据，自动计算 BMR、TDEE 和推荐减脂热量
@@ -73,6 +84,7 @@ npm.cmd start
 - 历史记录只显示日期、总热量、是否超标
 - 每日体重记录和最近 7 天趋势
 - 每天保存体重后，自动用最新体重重新推算维持热量和目标热量
+- 生产环境数据保存到 Supabase Postgres，打开网页后自动读取历史数据
 - 首页显示减脂第几天
 - 手机本地备份基础资料，云端免费实例数据丢失时会自动恢复基础信息
 - 首页显示连续记录热量天数和连续记录体重天数

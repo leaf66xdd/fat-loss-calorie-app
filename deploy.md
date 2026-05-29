@@ -8,8 +8,7 @@
 
 - Node 24
 - 一个长期运行的 Web 服务
-- 一个持久化目录：`/app/server/data`
-- 环境变量：`DATABASE_PATH=/app/server/data/app.sqlite`
+- Supabase Postgres 数据库，生产环境不再依赖 Render 本地磁盘
 
 ## Docker 本地验证
 
@@ -28,17 +27,51 @@ http://localhost:4000
 
 - Build：使用仓库根目录的 `Dockerfile`
 - Port：`4000`
-- Persistent disk / volume：挂载到 `/app/server/data`
 - Health check：`/api/health`
 - Environment variables:
-  - `DATABASE_PATH=/app/server/data/app.sqlite`
+  - `SUPABASE_DATABASE_URL=你的 Supabase Session pooler 数据库连接串`
+  - `APP_USER_ID=default`，可选；个人使用保持默认即可
   - `ARK_API_KEY=你的火山方舟 API Key`，推荐；配置后启用豆包图片识别
   - `ARK_VISION_MODEL=你的豆包视觉模型 ID 或推理接入点 ID`，推荐；例如在火山方舟开通的视觉模型
   - `ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3`，可选；不填时使用默认火山方舟地址
   - `OPENAI_API_KEY=你的 OpenAI API Key`，可选；只作为备用图片识别
   - `OPENAI_VISION_MODEL=gpt-4.1-mini`，可选；不填时默认使用 `gpt-4.1-mini`
 
-没有持久化磁盘也能启动，但 SQLite 数据会在服务重建后丢失。
+没有 `SUPABASE_DATABASE_URL` 时，服务会回退到 SQLite，仅适合本地开发；Render 免费版重建容器时 SQLite 数据仍可能丢失。
+
+## Supabase 配置步骤
+
+1. 打开 Supabase，创建一个新项目。
+2. 进入 `Project Settings` -> `Database`。
+3. 找到 `Connection string`。
+4. 选择 `Session pooler`，复制 URI 连接串。
+5. 如果连接串里有 `[YOUR-PASSWORD]`，替换成你创建 Supabase 项目时设置的数据库密码。
+6. 回到 Render 服务的 `Environment` 页面，点 `Edit`。
+7. 添加：
+
+```text
+SUPABASE_DATABASE_URL=postgresql://...
+APP_USER_ID=default
+```
+
+8. 保留现有豆包变量：
+
+```text
+ARK_API_KEY=你的火山方舟 API Key
+ARK_VISION_MODEL=你的火山方舟推理接入点 ID
+```
+
+9. 点 `Save, rebuild, and deploy`。
+10. 部署完成后访问 `/api/health`，如果返回 `storage: "supabase"`，说明已经切到 Supabase。
+
+后端启动时会自动在 Supabase 里创建这些表：
+
+- `profiles`：基础资料、BMR、维持热量、目标热量、开始日期
+- `daily_targets`：按日期保存每天的 BMR、维持热量和目标热量
+- `meal_entries`：每日食物记录、热量、蛋白质、碳水、脂肪
+- `weight_entries`：每日体重记录
+
+所有查询都会按 `APP_USER_ID` 和日期分类。当前 App 是个人工具，不做登录系统；如果以后要多人使用，再加 Supabase Auth。
 
 ## 图片识别说明
 
